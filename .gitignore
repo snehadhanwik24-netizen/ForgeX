@@ -1,0 +1,55 @@
+﻿# Environment variables and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Node dependencies and builds
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+**/coverage/
+
+# Python environments and cache
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated ForgeX repository data
+storage/repositories/
+engine/storage/objects/
+engine/storage/metadata/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.backup
+
+# Credentials and local scripts
+update-forgex-credentials.js
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary ForgeX audit reports
+forgex_frontend_audit.txt
+forgex_phase1_path_fix_review.txt
+forgex_phase1_security_audit.txt
+
+# Temporary ForgeX verification scripts
+forgex_deletion_test.js
+forgex_objectid_api_test.js
+forgex_objectid_test.js
+forgex_rollback_test.js

@@ -1,0 +1,153 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Inter, "Segoe UI", sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+}
+
+.auth-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        radial-gradient(ellipse at top, #17243a 0%, transparent 55%),
+        #0d1117;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 430px;
+    padding: 38px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.brand {
+    text-align: center;
+    margin-bottom: 34px;
+}
+
+.brand-icon {
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 12px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #238636, #2f81f7);
+    color: white;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.brand h1 {
+    font-size: 28px;
+    letter-spacing: -1px;
+}
+
+.brand p,
+.subtitle {
+    color: #8b949e;
+    font-size: 14px;
+    margin-top: 7px;
+}
+
+.auth-card h2 {
+    font-size: 22px;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    margin-bottom: 26px;
+}
+
+.auth-card form {
+    display: flex;
+    flex-direction: column;
+}
+
+.auth-card label {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 13px 0 8px;
+}
+
+.auth-card input {
+    width: 100%;
+    padding: 12px 14px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 7px;
+    color: #e6edf3;
+    font-size: 14px;
+    outline: none;
+}
+
+.auth-card input:focus {
+    border-color: #2f81f7;
+    box-shadow: 0 0 0 3px rgba(47, 129, 247, 0.15);
+}
+
+.auth-card button {
+    margin-top: 24px;
+    padding: 13px;
+    border: none;
+    border-radius: 7px;
+    background: #238636;
+    color: white;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.auth-card button:hover {
+    background: #2ea043;
+}
+
+.auth-card button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.auth-message {
+    margin-top: 18px;
+    padding: 12px;
+    border-radius: 7px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.auth-switch {
+    margin-top: 25px;
+    text-align: center;
+    color: #8b949e;
+    font-size: 13px;
+}
+
+.auth-switch span {
+    color: #58a6ff;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.auth-switch span:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+    .auth-card {
+        padding: 26px 20px;
+    }
+}
