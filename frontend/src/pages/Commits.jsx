@@ -1,24 +1,63 @@
-﻿import { useEffect, useState } from "react";
+import HistoryActions from "../components/HistoryActions";
+import CommitIntelligence from "../components/CommitIntelligence";
+import ReleaseCenter from "../components/ReleaseCenter";
+import { useEffect, useState } from "react";
 import { fetchCommitHistory, fetchFileDiff } from "../services/commitApi";
+import { fetchDashboardRepositories } from "../services/dashboardApi";
 import { DiffEditor } from "@monaco-editor/react";
 import "../Commits.css";
 import BranchManager from "../components/BranchManager";
 
-const REPOSITORIES = [
-    {
-        id: "6af6becfe9a43f823186c8e0",
-        name: "Engine Integration Test"
-    }
-];
 
+import RepositoryInsights from "../components/RepositoryInsights";
 function formatDate(timestamp) {
     return new Date(timestamp).toLocaleString();
 }
 
+function getMonacoLanguage(filePath = "") {
+    const extension = filePath.split(".").pop().toLowerCase();
+
+    const languages = {
+        js: "javascript", jsx: "javascript", mjs: "javascript",
+        cjs: "javascript", ts: "typescript", tsx: "typescript",
+        py: "python", java: "java", c: "c", cpp: "cpp",
+        h: "cpp", hpp: "cpp", cs: "csharp",
+        html: "html", htm: "html", css: "css",
+        scss: "scss", json: "json", md: "markdown",
+        xml: "xml", sql: "sql", sh: "shell",
+        bash: "shell", yml: "yaml", yaml: "yaml",
+        php: "php", rb: "ruby", go: "go",
+        rs: "rust", swift: "swift", kt: "kotlin",
+        txt: "plaintext"
+    };
+
+    return languages[extension] || "plaintext";
+}
+
+function getDiffStats(oldContent = "", newContent = "") {
+    const oldLines = oldContent.split("\n");
+    const newLines = newContent.split("\n");
+
+    let added = 0;
+    let deleted = 0;
+
+    const oldSet = new Set(oldLines);
+    const newSet = new Set(newLines);
+
+    newLines.forEach(line => {
+        if (line.trim() && !oldSet.has(line)) added++;
+    });
+
+    oldLines.forEach(line => {
+        if (line.trim() && !newSet.has(line)) deleted++;
+    });
+
+    return { added, deleted };
+}
+
 function Commits() {
-    const [selectedRepository, setSelectedRepository] = useState(
-        REPOSITORIES[0].id
-    );
+    const [repositories, setRepositories] = useState([]);
+    const [selectedRepository, setSelectedRepository] = useState("");
     const [commits, setCommits] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -82,7 +121,49 @@ function Commits() {
     };
 
     useEffect(() => {
+        let active = true;
+
+        const loadRepositories = async () => {
+            try {
+                setError("");
+                const data = await fetchDashboardRepositories();
+                const items = Array.isArray(data.repositories)
+                    ? data.repositories
+                    : [];
+
+                if (!active) return;
+
+                setRepositories(items);
+
+                setSelectedRepository(current => {
+                    const exists = items.some(
+                        repo => String(repo._id || repo.id) === current
+                    );
+
+                    if (exists) return current;
+
+                    return items.length
+                        ? String(items[0]._id || items[0].id)
+                        : "";
+                });
+            } catch (err) {
+                if (active) setError(err.message || "Unable to load repositories");
+            }
+        };
+
+        loadRepositories();
+
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    useEffect(() => {
         let isCurrent = true;
+
+        if (!selectedRepository) {
+            return () => { isCurrent = false; };
+        }
 
         fetchCommitHistory(selectedRepository)
             .then((data) => {
@@ -124,10 +205,18 @@ function Commits() {
                 </button>
             </div>
 
-            <BranchManager
-                repositoryId={selectedRepository}
-                onBranchChanged={loadCommits}
-            />
+            {selectedRepository && (
+                <>
+                <HistoryActions repositoryId={selectedRepository?._id || selectedRepository?.id || selectedRepository} commits={commits} />
+<BranchManager
+                    repositoryId={selectedRepository}
+                    onBranchChanged={loadCommits}
+                />
+                <ReleaseCenter repositoryId={selectedRepository} commits={commits} />
+                <CommitIntelligence commits={commits} repositoryId={selectedRepository} />
+                <RepositoryInsights commits={commits} repositoryId={selectedRepository} />
+                </>
+            )}
 
             <div className="commit-summary-grid">
                 <div className="commit-summary-card">
@@ -138,9 +227,7 @@ function Commits() {
 
                 <div className="commit-summary-card">
                     <span>Repository</span>
-                    <h2>{REPOSITORIES.find(
-                        repo => repo.id === selectedRepository
-                    )?.name}</h2>
+                    <h2>{repositories.find(repo => String(repo._id || repo.id) === selectedRepository)?.name || "No repository selected"}</h2>
                     <small>Selected repository</small>
                 </div>
             </div>
@@ -157,11 +244,14 @@ function Commits() {
                         setSelectedRepository(event.target.value)
                     }
                 >
-                    {REPOSITORIES.map(repo => (
-                        <option key={repo.id} value={repo.id}>
-                            {repo.name}
-                        </option>
-                    ))}
+                    {repositories.map(repo => {
+                        const id = String(repo._id || repo.id);
+                        return (
+                            <option key={id} value={id}>
+                                {repo.name}
+                            </option>
+                        );
+                    })}
                 </select>
             </div>
 
@@ -228,19 +318,49 @@ function Commits() {
 
                 {diffData && (
                     <div>
-                        <h3>{diffData.file_path}</h3>
+                        <h3 className="review-file-heading">{diffData.file_path}</h3>
+                        {(() => {
+                            const stats = getDiffStats(
+                                diffData.old_content || "",
+                                diffData.new_content || ""
+                            );
+                            return (
+                                <div className="review-diff-stats">
+                                    <span className="review-added">+{stats.added} added</span>
+                                    <span className="review-deleted">−{stats.deleted} deleted</span>
+                                    <span className="review-language">
+                                        {getMonacoLanguage(diffData.file_path || diffPath)}
+                                    </span>
+                                </div>
+                            );
+                        })()}
                         <DiffEditor
                             height="450px"
-                            language="plaintext"
+                            language={getMonacoLanguage(diffData.file_path || diffPath)}
                             theme="vs-dark"
                             original={diffData.old_content}
                             modified={diffData.new_content}
                             options={{
                                 readOnly: true,
+                                originalEditable: false,
                                 renderSideBySide: true,
+                                automaticLayout: true,
                                 minimap: { enabled: false },
+                                lineNumbers: "on",
                                 scrollBeyondLastLine: false,
-                                automaticLayout: true
+                                wordWrap: "on",
+                                renderIndicators: true,
+                                renderOverviewRuler: true,
+                                overviewRulerLanes: 3,
+                                diffAlgorithm: "advanced",
+                                ignoreTrimWhitespace: false,
+                                folding: true,
+                                fontSize: 13,
+                                padding: { top: 12, bottom: 12 },
+                                scrollbar: {
+                                    verticalScrollbarSize: 10,
+                                    horizontalScrollbarSize: 10
+                                }
                             }}
                         />
                     </div>
@@ -279,6 +399,19 @@ function Commits() {
                             <div className="commit-details">
                                 <div className="commit-title-row">
                                     <h3>{commit.message}</h3>
+                                    {commit.is_merge && (
+                                        <span style={{
+                                            marginLeft: "10px",
+                                            padding: "4px 9px",
+                                            borderRadius: "12px",
+                                            background: "#245c45",
+                                            color: "#9af0c2",
+                                            fontSize: "11px",
+                                            fontWeight: 700
+                                        }}>
+                                            MERGE
+                                        </span>
+                                    )}
                                     <span className="commit-number">
                                         #{commits.length - index}
                                     </span>
@@ -310,6 +443,20 @@ function Commits() {
                                     </code>
                                 </div>
 
+                                {commit.second_parent && (
+                                    <div className="commit-id">
+                                        <span>Second parent:</span>
+                                        <code>{commit.second_parent}</code>
+                                    </div>
+                                )}
+
+                                {commit.source_branch && (
+                                    <div className="commit-id">
+                                        <span>Merged from:</span>
+                                        <code>{commit.source_branch}</code>
+                                    </div>
+                                )}
+
                                 <div className="commit-files">
                                     <strong>Files:</strong>
                                     {Object.entries(commit.files || {}).map(
@@ -331,6 +478,3 @@ function Commits() {
 }
 
 export default Commits;
-
-
-

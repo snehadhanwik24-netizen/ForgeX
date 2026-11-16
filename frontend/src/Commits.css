@@ -252,3 +252,94 @@
         flex-direction: column;
     }
 }
+
+/* ForgeX Batch 8 - Professional Code Review */
+.review-file-heading {
+    margin: 12px 0 8px;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+}
+
+.review-diff-stats {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 8px;
+    background: rgba(128, 128, 128, 0.06);
+    font-size: 0.85rem;
+}
+
+.review-added {
+    color: #2da66b;
+    font-weight: 700;
+}
+
+.review-deleted {
+    color: #e05b65;
+    font-weight: 700;
+}
+
+.review-language {
+    opacity: 0.75;
+    text-transform: capitalize;
+    margin-left: auto;
+}
+
+
+/* ForgeX UI polish - Batch 10 */
+.commits-page {
+    width: min(100% - 40px, 1440px);
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: 48px;
+}
+
+.commits-page > section,
+.commits-page > .commit-summary-grid {
+    min-width: 0;
+}
+
+.commits-page .release-center,
+.commits-page .repository-insights {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 22px;
+}
+
+.commits-page .release-center__heading,
+.commits-page .repository-insights__header {
+    align-items: center;
+}
+
+.commits-page .release-center__panel,
+.commits-page .repository-insights__panel,
+.commits-page .repository-insights__stat {
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.commits-page button,
+.commits-page select,
+.commits-page input {
+    font: inherit;
+}
+
+.commits-page button {
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    .commits-page {
+        width: min(100% - 24px, 100%);
+    }
+}
+
+@media (max-width: 480px) {
+    .commits-page {
+        width: calc(100% - 20px);
+    }
+}

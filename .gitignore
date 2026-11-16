@@ -53,3 +53,14 @@ forgex_deletion_test.js
 forgex_objectid_api_test.js
 forgex_objectid_test.js
 forgex_rollback_test.js
+
+
+# Environment secrets
+# Dependencies and generated files
+
+# ForgeX temporary backups
+backups/
+*.merge-backup
+*.history-backup
+*.fix-backup
+*.pre-dynamic-backup

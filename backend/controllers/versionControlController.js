@@ -1,4 +1,4 @@
-﻿const Repository = require("../models/Repository");
+const Repository = require("../models/Repository");
 const RepositoryFile = require("../models/RepositoryFile");
 const { runPythonEngine } = require("../services/pythonEngineService");
 
@@ -310,6 +310,386 @@ exports.switchBranch = async (req, res) => {
     } catch (error) {
         return res.status(400).json({
             message: "Failed to switch branch",
+            error: error.message
+        });
+    }
+};
+
+
+// Merge a source branch into the currently active branch.
+exports.mergeBranch = async (req, res) => {
+    try {
+        const repository = await findOwnedRepository(
+            req.params.repositoryId,
+            req.user._id
+        );
+
+        if (!repository) {
+            return res.status(404).json({
+                message: "Repository not found"
+            });
+        }
+
+        const { sourceBranch, message } = req.body;
+
+        if (
+            typeof sourceBranch !== "string" ||
+            !sourceBranch.trim()
+        ) {
+            return res.status(400).json({
+                message: "Source branch is required"
+            });
+        }
+
+        // Check whether the working tree has uncommitted changes.
+        const currentSnapshot = await runPythonEngine({
+            action: "get_snapshot",
+            repository_id: repository._id.toString()
+        });
+
+        const documents = await RepositoryFile.find({
+            repository: repository._id,
+            type: "file"
+        }).lean();
+
+        const committedFiles = currentSnapshot.files || {};
+        const workingFiles = new Map(
+            documents.map(file => [file.path, file.content || ""])
+        );
+
+        const allPaths = new Set([
+            ...Object.keys(committedFiles),
+            ...workingFiles.keys()
+        ]);
+
+        const dirtyFiles = [];
+
+        for (const filePath of allPaths) {
+            if (
+                !Object.prototype.hasOwnProperty.call(
+                    committedFiles,
+                    filePath
+                ) ||
+                !workingFiles.has(filePath) ||
+                committedFiles[filePath] !== workingFiles.get(filePath)
+            ) {
+                dirtyFiles.push(filePath);
+            }
+        }
+
+        if (dirtyFiles.length > 0) {
+            return res.status(409).json({
+                message: "Commit or discard working-tree changes before merging.",
+                dirtyFiles
+            });
+        }
+
+        // Execute merge using the Python version-control engine.
+        const result = await runPythonEngine({
+            action: "merge",
+            repository_id: repository._id.toString(),
+            source_branch: sourceBranch.trim(),
+            message: typeof message === "string" ? message.trim() : undefined
+        });
+
+        if (result.status === "conflict") {
+            return res.status(409).json({
+                message: "Merge conflicts detected. The target branch was not changed.",
+                conflicts: result.conflicts || [],
+                merge: result
+            });
+        }
+
+        if (result.status === "up_to_date") {
+            return res.status(200).json({
+                message: "Branches are already up to date.",
+                merge: result
+            });
+        }
+
+        if (
+            result.status !== "merged" &&
+            result.status !== "fast_forward"
+        ) {
+            return res.status(400).json({
+                message: "Merge could not be completed.",
+                merge: result
+            });
+        }
+
+        const destinationFiles = result.files || {};
+        const desiredDocuments = new Map();
+
+        // Reconstruct parent folders and prepare destination files.
+        for (const [filePath, content] of Object.entries(destinationFiles)) {
+            const parts = filePath.split("/");
+
+            for (let i = 1; i < parts.length; i++) {
+                const folderPath = parts.slice(0, i).join("/");
+
+                desiredDocuments.set(folderPath, {
+                    repository: repository._id,
+                    path: folderPath,
+                    name: parts[i - 1],
+                    type: "folder",
+                    content: "",
+                    size: 0
+                });
+            }
+
+            desiredDocuments.set(filePath, {
+                repository: repository._id,
+                path: filePath,
+                name: parts[parts.length - 1],
+                type: "file",
+                content,
+                size: Buffer.byteLength(content, "utf8")
+            });
+        }
+
+        const desiredPaths = [...desiredDocuments.keys()];
+
+        // Update destination files and folders.
+        if (desiredDocuments.size > 0) {
+            await RepositoryFile.bulkWrite(
+                [...desiredDocuments.values()].map(document => ({
+                    updateOne: {
+                        filter: {
+                            repository: repository._id,
+                            path: document.path
+                        },
+                        update: {
+                            $set: document
+                        },
+                        upsert: true
+                    }
+                }))
+            );
+        }
+
+        // Remove paths that do not exist in the merged snapshot.
+        await RepositoryFile.deleteMany({
+            repository: repository._id,
+            path: { $nin: desiredPaths }
+        });
+
+        return res.status(200).json({
+            message: result.status === "fast_forward"
+                ? "Branch fast-forwarded successfully."
+                : "Branches merged successfully.",
+            merge: result,
+            fileCount: Object.keys(destinationFiles).length,
+            files: destinationFiles
+        });
+
+    } catch (error) {
+        return res.status(400).json({
+            message: "Failed to merge branches",
+            error: error.message
+        });
+    }
+};
+
+
+exports.getConflictDetails = async (req, res) => {
+    try {
+        const repository = await findOwnedRepository(
+            req.params.repositoryId,
+            req.user._id
+        );
+
+        if (!repository) {
+            return res.status(404).json({ message: "Repository not found" });
+        }
+
+        const { sourceBranch } = req.body;
+
+        if (typeof sourceBranch !== "string" || !sourceBranch.trim()) {
+            return res.status(400).json({ message: "Source branch is required" });
+        }
+
+        const currentSnapshot = await runPythonEngine({
+            action: "get_snapshot",
+            repository_id: repository._id.toString()
+        });
+
+        const documents = await RepositoryFile.find({
+            repository: repository._id,
+            type: "file"
+        }).lean();
+
+        const committedFiles = currentSnapshot.files || {};
+        const workingFiles = new Map(
+            documents.map(file => [file.path, file.content || ""])
+        );
+
+        const allPaths = new Set([
+            ...Object.keys(committedFiles),
+            ...workingFiles.keys()
+        ]);
+
+        const dirtyFiles = [...allPaths].filter(filePath =>
+            !Object.prototype.hasOwnProperty.call(committedFiles, filePath) ||
+            !workingFiles.has(filePath) ||
+            committedFiles[filePath] !== workingFiles.get(filePath)
+        );
+
+        if (dirtyFiles.length) {
+            return res.status(409).json({
+                message: "Commit or discard working-tree changes first.",
+                dirtyFiles
+            });
+        }
+
+        const result = await runPythonEngine({
+            action: "get_conflict_details",
+            repository_id: repository._id.toString(),
+            source_branch: sourceBranch.trim()
+        });
+
+        return res.status(200).json(result);
+
+    } catch (error) {
+        return res.status(400).json({
+            message: "Failed to retrieve conflict details",
+            error: error.message
+        });
+    }
+};
+
+exports.resolveConflicts = async (req, res) => {
+    try {
+        const repository = await findOwnedRepository(
+            req.params.repositoryId,
+            req.user._id
+        );
+
+        if (!repository) {
+            return res.status(404).json({ message: "Repository not found" });
+        }
+
+        const { sourceBranch, resolvedFiles, message } = req.body;
+
+        if (
+            typeof sourceBranch !== "string" ||
+            !sourceBranch.trim() ||
+            !resolvedFiles ||
+            typeof resolvedFiles !== "object" ||
+            Array.isArray(resolvedFiles)
+        ) {
+            return res.status(400).json({
+                message: "Source branch and resolved files are required"
+            });
+        }
+
+        const currentSnapshot = await runPythonEngine({
+            action: "get_snapshot",
+            repository_id: repository._id.toString()
+        });
+
+        const documents = await RepositoryFile.find({
+            repository: repository._id,
+            type: "file"
+        }).lean();
+
+        const committedFiles = currentSnapshot.files || {};
+        const workingFiles = new Map(
+            documents.map(file => [file.path, file.content || ""])
+        );
+
+        const allPaths = new Set([
+            ...Object.keys(committedFiles),
+            ...workingFiles.keys()
+        ]);
+
+        const dirtyFiles = [...allPaths].filter(filePath =>
+            !Object.prototype.hasOwnProperty.call(committedFiles, filePath) ||
+            !workingFiles.has(filePath) ||
+            committedFiles[filePath] !== workingFiles.get(filePath)
+        );
+
+        if (dirtyFiles.length) {
+            return res.status(409).json({
+                message: "Commit or discard working-tree changes first.",
+                dirtyFiles
+            });
+        }
+
+        const result = await runPythonEngine({
+            action: "resolve_conflicts",
+            repository_id: repository._id.toString(),
+            source_branch: sourceBranch.trim(),
+            resolved_files: resolvedFiles,
+            message
+        });
+
+        if (result.status !== "merged") {
+            return res.status(400).json({
+                message: "Conflict resolution was not completed",
+                merge: result
+            });
+        }
+
+        const destinationFiles = result.files || {};
+        const desiredDocuments = new Map();
+
+        for (const [filePath, content] of Object.entries(destinationFiles)) {
+            const parts = filePath.split("/");
+
+            for (let i = 1; i < parts.length; i++) {
+                const folderPath = parts.slice(0, i).join("/");
+                desiredDocuments.set(folderPath, {
+                    repository: repository._id,
+                    path: folderPath,
+                    name: parts[i - 1],
+                    type: "folder",
+                    content: "",
+                    size: 0
+                });
+            }
+
+            desiredDocuments.set(filePath, {
+                repository: repository._id,
+                path: filePath,
+                name: parts[parts.length - 1],
+                type: "file",
+                content,
+                size: Buffer.byteLength(content, "utf8")
+            });
+        }
+
+        const desiredPaths = [...desiredDocuments.keys()];
+
+        if (desiredDocuments.size) {
+            await RepositoryFile.bulkWrite(
+                [...desiredDocuments.values()].map(document => ({
+                    updateOne: {
+                        filter: {
+                            repository: repository._id,
+                            path: document.path
+                        },
+                        update: { $set: document },
+                        upsert: true
+                    }
+                }))
+            );
+        }
+
+        await RepositoryFile.deleteMany({
+            repository: repository._id,
+            path: { $nin: desiredPaths }
+        });
+
+        return res.status(200).json({
+            message: "Conflicts resolved and branches merged successfully.",
+            merge: result,
+            files: destinationFiles,
+            fileCount: Object.keys(destinationFiles).length
+        });
+
+    } catch (error) {
+        return res.status(400).json({
+            message: "Failed to resolve conflicts",
             error: error.message
         });
     }
@@ -648,3 +1028,209 @@ exports.stageDeletion = async (req, res) => {
         });
     }
 };
+
+
+// ForgeX Batch 3: history operations and release management.
+
+async function syncHistoryOperationFiles(repositoryId, files) {
+    if (!files || typeof files !== "object" || Array.isArray(files)) {
+        throw new Error("Engine did not return a valid repository snapshot");
+    }
+
+    const desired = new Map();
+
+    for (const [filePath, content] of Object.entries(files)) {
+        const normalized = filePath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+        if (!normalized || normalized.split("/").some(part => !part || part === "." || part === "..")) {
+            throw new Error("Engine returned an unsafe file path");
+        }
+
+        const segments = normalized.split("/");
+        for (let i = 1; i < segments.length; i++) {
+            const folderPath = segments.slice(0, i).join("/");
+            desired.set(folderPath, {
+                repository: repositoryId,
+                path: folderPath,
+                name: segments[i - 1],
+                type: "folder",
+                content: "",
+                size: 0
+            });
+        }
+
+        desired.set(normalized, {
+            repository: repositoryId,
+            path: normalized,
+            name: segments[segments.length - 1],
+            type: "file",
+            content: String(content),
+            size: Buffer.byteLength(String(content), "utf8")
+        });
+    }
+
+    const existing = await RepositoryFile.find({ repository: repositoryId });
+    const existingByPath = new Map(existing.map(file => [file.path, file]));
+    const operations = [];
+
+    for (const [filePath, document] of desired) {
+        const current = existingByPath.get(filePath);
+        if (current) {
+            operations.push({
+                updateOne: {
+                    filter: { _id: current._id },
+                    update: {
+                        $set: {
+                            name: document.name,
+                            type: document.type,
+                            content: document.content,
+                            size: document.size
+                        }
+                    }
+                }
+            });
+        } else {
+            operations.push({
+                insertOne: { document }
+            });
+        }
+    }
+
+    if (operations.length) {
+        await RepositoryFile.bulkWrite(operations);
+    }
+
+    const stalePaths = existing
+        .filter(file => !desired.has(file.path))
+        .map(file => file._id);
+
+    if (stalePaths.length) {
+        await RepositoryFile.deleteMany({ _id: { $in: stalePaths } });
+    }
+}
+
+async function runHistoryOperation(req, res, action) {
+    try {
+        const repository = await findOwnedRepository(
+            req.params.repositoryId,
+            req.user._id
+        );
+
+        if (!repository) {
+            return res.status(404).json({
+                success: false,
+                message: "Repository not found"
+            });
+        }
+
+        const engineResult = await runPythonEngine({
+            action,
+            repository_id: repository._id.toString(),
+            commit_id: req.body.commit_id,
+            message: req.body.message,
+            mainline_parent: req.body.mainline_parent
+        });
+
+        const result = engineResult.data ?? engineResult;
+
+        if (result.status === "conflict") {
+            return res.status(409).json({
+                success: false,
+                status: "conflict",
+                conflicts: result.conflicts || [],
+                message: "Operation stopped because some files conflict"
+            });
+        }
+
+        if (action === "revert" && result.status !== "reverted") {
+            throw new Error("Unexpected revert result from engine");
+        }
+        if (action === "cherry_pick" && result.status !== "cherry_picked") {
+            throw new Error("Unexpected cherry-pick result from engine");
+        }
+
+        await syncHistoryOperationFiles(repository._id, result.files);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                status: result.status,
+                commit: result.commit
+            }
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message || "History operation failed"
+        });
+    }
+}
+
+async function revertCommit(req, res) {
+    return runHistoryOperation(req, res, "revert");
+}
+
+async function cherryPickCommit(req, res) {
+    return runHistoryOperation(req, res, "cherry_pick");
+}
+
+async function runMetadataOperation(req, res, action) {
+    try {
+        req.body = req.body || {};
+
+        const repository = await findOwnedRepository(
+            req.params.repositoryId,
+            req.user._id
+        );
+
+        if (!repository) {
+            return res.status(404).json({
+                success: false,
+                message: "Repository not found"
+            });
+        }
+
+        const engineResult = await runPythonEngine({
+            action,
+            repository_id: repository._id.toString(),
+            name: req.body.name,
+            commit_id: req.body.commit_id,
+            message: req.body.message,
+            title: req.body.title,
+            tag_name: req.body.tag_name,
+            description: req.body.description
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: engineResult.data ?? engineResult
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message || "Metadata operation failed"
+        });
+    }
+}
+
+async function createRepositoryTag(req, res) {
+    return runMetadataOperation(req, res, "create_tag");
+}
+
+async function getRepositoryTags(req, res) {
+    return runMetadataOperation(req, res, "list_tags");
+}
+
+async function createRepositoryRelease(req, res) {
+    return runMetadataOperation(req, res, "create_release");
+}
+
+async function getRepositoryReleases(req, res) {
+    return runMetadataOperation(req, res, "list_releases");
+}
+
+module.exports.revertCommit = revertCommit;
+module.exports.cherryPickCommit = cherryPickCommit;
+module.exports.createRepositoryTag = createRepositoryTag;
+module.exports.getRepositoryTags = getRepositoryTags;
+module.exports.createRepositoryRelease = createRepositoryRelease;
+module.exports.getRepositoryReleases = getRepositoryReleases;

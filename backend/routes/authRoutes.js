@@ -8,9 +8,10 @@ const {
 } = require("../controllers/authController");
 
 const protect = require("../middleware/authMiddleware");
+const { loginLimiter, registrationLimiter } = require("../middleware/authRateLimiters");
 
-router.post("/register", register);
-router.post("/login", login);
+router.post("/register", registrationLimiter, register);
+router.post("/login", loginLimiter, login);
 router.get("/me", protect, getProfile);
 
 module.exports = router;

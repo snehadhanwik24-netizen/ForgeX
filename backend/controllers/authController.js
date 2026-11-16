@@ -60,9 +60,9 @@ exports.register = async (req, res) => {
         });
 
     } catch (error) {
+        console.error("Authentication operation failed:", error);
         res.status(500).json({
             message: "Registration failed",
-            error: error.message
         });
     }
 };
@@ -102,9 +102,9 @@ exports.login = async (req, res) => {
         });
 
     } catch (error) {
+        console.error("Authentication operation failed:", error);
         res.status(500).json({
             message: "Login failed",
-            error: error.message
         });
     }
 };

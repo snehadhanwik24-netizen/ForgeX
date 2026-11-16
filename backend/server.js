@@ -1,4 +1,4 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
@@ -13,13 +13,28 @@ const versionControlRoutes = require("./routes/versionControlRoutes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+if (!process.env.JWT_SECRET || !process.env.JWT_SECRET.trim()) {
+    throw new Error("JWT_SECRET must be configured before starting ForgeX.");
+}
+
 app.use(helmet());
 
+const allowedOrigins = (
+    process.env.CORS_ORIGINS ||
+    process.env.FRONTEND_URL ||
+    "http://localhost:5173"
+).split(",").map(origin => origin.trim()).filter(Boolean);
+
 app.use(cors({
-    origin: "http://localhost:5173"
+    origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    }
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (req, res) => {
     res.json({
@@ -58,6 +73,3 @@ const startServer = async () => {
 };
 
 startServer();
-
-
-

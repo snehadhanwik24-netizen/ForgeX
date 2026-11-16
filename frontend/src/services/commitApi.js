@@ -211,3 +211,158 @@ export const unstageRepositoryDeletion = async (repositoryId, filePath) => {
     if (!response.ok) throw new Error(data.message || "Failed to unstage deletion");
     return data;
 };
+
+
+// Merge a source branch into the active branch
+export const mergeRepositoryBranch = async (
+    repositoryId,
+    sourceBranch,
+    message
+) => {
+    const response = await fetch(
+        `${API_URL}/${repositoryId}/merge`,
+        {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({ sourceBranch, message })
+        }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        const error = new Error(data.message || "Failed to merge branches");
+        error.conflicts = data.conflicts || [];
+        error.dirtyFiles = data.dirtyFiles || [];
+        throw error;
+    }
+
+    return data;
+};
+
+
+// Retrieve base, target and source versions of conflicting files.
+export const fetchConflictDetails = async (repositoryId, sourceBranch) => {
+    const response = await fetch(
+        `${API_URL}/${repositoryId}/conflicts`,
+        {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({ sourceBranch })
+        }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.message || "Failed to retrieve conflict details");
+    }
+
+    return data;
+};
+
+// Submit manually resolved files and complete the merge.
+export const resolveRepositoryConflicts = async (
+    repositoryId,
+    sourceBranch,
+    resolvedFiles,
+    message
+) => {
+    const response = await fetch(
+        `${API_URL}/${repositoryId}/resolve-conflicts`,
+        {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({
+                sourceBranch,
+                resolvedFiles,
+                message
+            })
+        }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        const error = new Error(
+            data.message || "Failed to resolve conflicts"
+        );
+        error.details = data.error;
+        throw error;
+    }
+
+    return data;
+};
+
+// ForgeX history operations: revert, cherry-pick, tags and releases.
+async function historyRequest(repositoryId, endpoint, options = {}) {
+    if (!repositoryId) throw new Error("Select a repository first");
+
+    const response = await fetch(
+        `${API_URL}/${repositoryId}/${endpoint}`,
+        {
+            ...options,
+            headers: {
+                ...getHeaders(),
+                ...(options.headers || {})
+            }
+        }
+    );
+
+    const rawResponse = await response.text();
+    let result;
+
+    try {
+        result = JSON.parse(rawResponse);
+    } catch {
+        const preview = rawResponse.slice(0, 250).replace(/\s+/g, " ");
+        throw new Error(
+            `API returned non-JSON response (HTTP ${response.status}): ${preview || "Empty response"}`
+        );
+    }
+
+    if (!response.ok || result.success === false) {
+        const error = new Error(result.message || "Request failed");
+        error.status = response.status;
+        error.conflicts = result.conflicts || [];
+        throw error;
+    }
+
+    return result.data;
+}
+
+export async function revertRepositoryCommit(repositoryId, payload) {
+    return historyRequest(repositoryId, "revert", {
+        method: "POST",
+        body: JSON.stringify(payload)
+    });
+}
+
+export async function cherryPickRepositoryCommit(repositoryId, payload) {
+    return historyRequest(repositoryId, "cherry-pick", {
+        method: "POST",
+        body: JSON.stringify(payload)
+    });
+}
+
+export async function fetchRepositoryTags(repositoryId) {
+    return historyRequest(repositoryId, "tags");
+}
+
+export async function createRepositoryTag(repositoryId, payload) {
+    return historyRequest(repositoryId, "tags", {
+        method: "POST",
+        body: JSON.stringify(payload)
+    });
+}
+
+export async function fetchRepositoryReleases(repositoryId) {
+    return historyRequest(repositoryId, "releases");
+}
+
+export async function createRepositoryRelease(repositoryId, payload) {
+    return historyRequest(repositoryId, "releases", {
+        method: "POST",
+        body: JSON.stringify(payload)
+    });
+}

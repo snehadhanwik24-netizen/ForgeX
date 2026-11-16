@@ -184,19 +184,29 @@ class CommitEngine:
 
         history = []
         visited = set()
+        pending = [current_commit_id] if current_commit_id else []
 
-        while current_commit_id:
-            if current_commit_id in visited:
-                raise ValueError("Circular commit history detected")
+        while pending:
+            commit_id = pending.pop(0)
 
-            visited.add(current_commit_id)
+            if not commit_id or commit_id in visited:
+                continue
 
-            commit = commit_lookup.get(current_commit_id)
-
+            commit = commit_lookup.get(commit_id)
             if commit is None:
                 raise ValueError("Commit referenced by branch was not found")
 
+            visited.add(commit_id)
             history.append(commit)
-            current_commit_id = commit.get("parent")
+
+            # Include both parents so merge history is complete.
+            first_parent = commit.get("parent")
+            second_parent = commit.get("second_parent")
+
+            if first_parent and first_parent not in visited:
+                pending.append(first_parent)
+
+            if second_parent and second_parent not in visited:
+                pending.append(second_parent)
 
         return history
