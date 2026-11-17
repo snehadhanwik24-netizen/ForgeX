@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import json
 from pathlib import Path
 
@@ -230,6 +230,109 @@ def execute(request):
             )
         }
 
+    if action == "compare_branches":
+
+        source_branch = request.get("source_branch")
+        target_branch = request.get("target_branch")
+
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (source_branch, target_branch)
+        ):
+            raise ValueError("Source and target branches are required")
+
+        source_branch = source_branch.strip()
+        target_branch = target_branch.strip()
+
+        if source_branch == target_branch:
+            raise ValueError("Cannot compare a branch with itself")
+
+        source_commit_id = branches.get_branch_commit(source_branch)
+        target_commit_id = branches.get_branch_commit(target_branch)
+
+        source_snapshot = commits.get_snapshot(source_commit_id)
+        target_snapshot = commits.get_snapshot(target_commit_id)
+
+        changed_paths = sorted(
+            path
+            for path in set(source_snapshot) | set(target_snapshot)
+            if source_snapshot.get(path) != target_snapshot.get(path)
+        )
+
+        changed_files = []
+        total_additions = 0
+        total_deletions = 0
+
+        for file_path in changed_paths:
+
+            old_hash = target_snapshot.get(file_path)
+            new_hash = source_snapshot.get(file_path)
+
+            if old_hash is None:
+                status = "added"
+            elif new_hash is None:
+                status = "deleted"
+            else:
+                status = "modified"
+
+            old_content = store.read_object(old_hash) if old_hash else b""
+            new_content = store.read_object(new_hash) if new_hash else b""
+
+            for object_hash, content in (
+                (old_hash, old_content),
+                (new_hash, new_content)
+            ):
+                if object_hash and store.calculate_hash(content) != object_hash.lower():
+                    raise ValueError(
+                        f"Object integrity verification failed: {file_path}"
+                    )
+
+            try:
+                old_text = old_content.decode("utf-8")
+                new_text = new_content.decode("utf-8")
+                binary = False
+            except UnicodeDecodeError:
+                old_text = ""
+                new_text = ""
+                binary = True
+
+            file_diff = (
+                [] if binary else
+                DiffEngine().compare_content(old_text, new_text)
+            )
+
+            additions = sum(
+                1 for line in file_diff
+                if line.startswith("+") and not line.startswith("+++")
+            )
+
+            deletions = sum(
+                1 for line in file_diff
+                if line.startswith("-") and not line.startswith("---")
+            )
+
+            total_additions += additions
+            total_deletions += deletions
+
+            changed_files.append({
+                "file_path": file_path,
+                "status": status,
+                "binary": binary,
+                "additions": additions,
+                "deletions": deletions,
+                "diff": file_diff
+            })
+
+        return {
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "source_commit_id": source_commit_id,
+            "target_commit_id": target_commit_id,
+            "changed_file_count": len(changed_files),
+            "additions": total_additions,
+            "deletions": total_deletions,
+            "files": changed_files
+        }
     if action == "history":
         return commits.get_history()
 
@@ -487,3 +590,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

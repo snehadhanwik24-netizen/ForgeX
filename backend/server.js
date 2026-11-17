@@ -1,4 +1,4 @@
-require("dotenv").config();
+﻿require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
@@ -9,6 +9,7 @@ const authRoutes = require("./routes/authRoutes");
 const repositoryRoutes = require("./routes/repositoryRoutes");
 const repositoryFileRoutes = require("./routes/repositoryFileRoutes");
 const versionControlRoutes = require("./routes/versionControlRoutes");
+const pullRequestRoutes = require("./routes/pullRequestRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -56,6 +57,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/repositories", repositoryRoutes);
 app.use("/api/repository-files", repositoryFileRoutes);
 app.use("/api/version-control", versionControlRoutes);
+app.use("/api/pull-requests", pullRequestRoutes);
 
 const startServer = async () => {
     try {
@@ -73,3 +75,4 @@ const startServer = async () => {
 };
 
 startServer();
+
